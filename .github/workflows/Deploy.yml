@@ -22,7 +22,6 @@ env:
   SERVICE_NAME: like98100-service
   CONTAINER_NAME: like98100-ecr
   REPOSITORY_NAME: like98100
-  TASK_DEFINITION: .aws/ecs-task-definition.json
 
 jobs:
   deploy:
@@ -52,30 +51,16 @@ jobs:
           IMAGE_URI="${{ steps.login-ecr.outputs.registry }}/${{ env.REPOSITORY_NAME }}:latest"
           docker build -t "$IMAGE_URI" .
           docker push "$IMAGE_URI"
-          echo "image_uri=$IMAGE_URI" >> $GITHUB_OUTPUT
+          echo "image_uri=$IMAGE_URI" >> $GITHUB_ENV
 
-      - name: Render new ECS task definition
-        if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'deploy')
-        id: task-def
-        uses: aws-actions/amazon-ecs-render-task-definition@v1
-        with:
-          task-definition: ${{ env.TASK_DEFINITION }}
-          container-name: ${{ env.CONTAINER_NAME }}
-          image: ${{ steps.build-image.outputs.image_uri }}
-
-      - name: Deploy ECS task definition
-        if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'deploy')
-        uses: aws-actions/amazon-ecs-deploy-task-definition@v1
-        with:
-          task-definition: ${{ steps.task-def.outputs.task-definition }}
-          service: ${{ env.SERVICE_NAME }}
-          cluster: ${{ env.CLUSTER_NAME }}
-          wait-for-service-stability: true
-
-      - name: Restart ECS Service
-        if: github.event_name == 'workflow_dispatch' && github.event.inputs.action == 'restart'
+      - name: Deploy or Restart ECS Service
         run: |
           aws ecs update-service \
-            --cluster $CLUSTER_NAME \
-            --service $SERVICE_NAME \
+            --cluster ${{ env.CLUSTER_NAME }} \
+            --service ${{ env.SERVICE_NAME }} \
             --force-new-deployment
+        env:
+          AWS_REGION: ${{ env.AWS_REGION }}
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        if: github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && (github.event.inputs.action == 'deploy' || github.event.inputs.action == 'restart'))
